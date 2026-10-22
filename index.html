@@ -252,6 +252,12 @@
         let currentPage = Math.floor(Math.random() * 50) + 1;
         let isLoadingImages = false;
 
+        const FALLBACK_IMAGES = [
+            { id: "fallback_1", author: "Unsplash - Alpine", lowRes: "https://images.unsplash.com/photo-1506744626753-140026e2570b?q=80&w=600&auto=format&fit=crop", highRes: "https://images.unsplash.com/photo-1506744626753-140026e2570b?q=80&w=2400&auto=format&fit=crop" },
+            { id: "fallback_2", author: "Unsplash - Forest", lowRes: "https://images.unsplash.com/photo-1472712739516-7ad2b786e1f7?q=80&w=600&auto=format&fit=crop", highRes: "https://images.unsplash.com/photo-1472712739516-7ad2b786e1f7?q=80&w=2400&auto=format&fit=crop" },
+            { id: "fallback_3", author: "Unsplash - Lake", lowRes: "https://images.unsplash.com/photo-1493246507139-91e8fad9978e?q=80&w=600&auto=format&fit=crop", highRes: "https://images.unsplash.com/photo-1493246507139-91e8fad9978e?q=80&w=2400&auto=format&fit=crop" }
+        ];
+
         // --- DOM ELEMENTS ---
         const els = {
             menuScreen: document.getElementById('menu-screen'),
@@ -326,8 +332,15 @@
                 if (container) container.classList.remove('hidden');
                 
             } catch (err) {
+                console.warn("Failed to load panoramas from Picsum, using fallbacks.", err);
                 if (!append) {
-                    els.imageGrid.innerHTML = '<div class="col-span-full py-12 text-center text-red-400">Failed to load panoramas. Check your connection.</div>';
+                    fetchedImages = FALLBACK_IMAGES;
+                    renderDashboard();
+                    const container = document.getElementById('load-more-container');
+                    if (container) container.classList.add('hidden');
+                } else {
+                    // Fallback if they try to click "Load More" while disconnected
+                    alert("Could not load more images. Please check your internet connection.");
                 }
             } finally {
                 isLoadingImages = false;
@@ -345,8 +358,9 @@
 
             fetchedImages.forEach((img, index) => {
                 const isSolved = solved.includes(img.id);
-                const lowRes = `https://picsum.photos/id/${img.id}/600/200`;
-                const highRes = `https://picsum.photos/id/${img.id}/2400/600`;
+                // Use explicit URLs if they exist (for fallbacks), otherwise format Picsum URLs
+                const lowRes = img.lowRes || `https://picsum.photos/id/${img.id}/600/200`;
+                const highRes = img.highRes || `https://picsum.photos/id/${img.id}/2400/600`;
                 
                 const btn = document.createElement('button');
                 btn.className = `img-btn group relative overflow-hidden rounded-2xl border-2 transition-all duration-300 shadow-lg text-left block w-full
