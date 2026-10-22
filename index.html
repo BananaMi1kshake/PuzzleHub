@@ -169,9 +169,14 @@
         
         <!-- Header / Controls -->
         <div class="max-w-5xl w-full mx-auto flex justify-between items-start mb-6">
-            <button id="btn-back" class="flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 rounded-xl transition-colors border border-slate-600 font-semibold shadow-md">
-                <span>⬅️</span> Back
-            </button>
+            <div class="flex gap-2">
+                <button id="btn-back" class="flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 rounded-xl transition-colors border border-slate-600 font-semibold shadow-md">
+                    <span>⬅️</span> Back
+                </button>
+                <button id="btn-pause" class="flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 rounded-xl transition-colors border border-slate-600 font-semibold shadow-md text-amber-400">
+                    <span>⏸️</span> Pause
+                </button>
+            </div>
             
             <div class="flex flex-col items-end gap-3">
                 <!-- Self Progress -->
@@ -209,6 +214,20 @@
                 <span class="font-bold text-lg tracking-widest text-emerald-400">BUILDING PUZZLE...</span>
             </div>
 
+            <!-- Pause / Ready Overlay -->
+            <div id="pause-overlay" class="hidden absolute inset-0 bg-slate-900/90 flex flex-col items-center justify-center z-[60] backdrop-blur-sm">
+                <h2 id="pause-title" class="text-4xl md:text-5xl font-extrabold text-white mb-4 text-center drop-shadow-lg">Game Paused</h2>
+                <p id="pause-status" class="text-slate-300 mb-8 text-lg font-medium h-6 text-center"></p>
+                <button id="btn-ready" class="px-10 py-4 bg-emerald-600 hover:bg-emerald-500 rounded-xl font-bold text-xl shadow-lg transition-all transform hover:-translate-y-1 text-white">
+                    I'm Ready
+                </button>
+            </div>
+
+            <!-- Countdown Overlay -->
+            <div id="countdown-overlay" class="hidden absolute inset-0 bg-slate-900/80 flex flex-col items-center justify-center z-[70] backdrop-blur-sm">
+                <div id="countdown-text" class="text-9xl font-extrabold text-white drop-shadow-[0_0_20px_rgba(255,255,255,0.5)] animate-pulse">3</div>
+            </div>
+
             <!-- Win/Lose overlays -->
             <div id="win-overlay" class="hidden absolute inset-0 bg-slate-900/90 flex flex-col items-center justify-center z-50 backdrop-blur-md">
                 <div class="text-7xl mb-4 animate-bounce">🏆</div>
@@ -244,7 +263,11 @@
             viewportX: 0,      
             tileSize: 0,
             isTransitioning: false,
-            isMultiplayer: false
+            isMultiplayer: false,
+            isPaused: true,
+            isCountingDown: false,
+            localReady: false,
+            remoteReady: false
         };
 
         let dragState = {
@@ -273,6 +296,12 @@
             track: document.getElementById('track'),
             fadedBg: document.getElementById('faded-bg'),
             loadingOverlay: document.getElementById('loading-overlay'),
+            pauseOverlay: document.getElementById('pause-overlay'),
+            pauseTitle: document.getElementById('pause-title'),
+            pauseStatus: document.getElementById('pause-status'),
+            btnReady: document.getElementById('btn-ready'),
+            countdownOverlay: document.getElementById('countdown-overlay'),
+            countdownText: document.getElementById('countdown-text'),
             winOverlay: document.getElementById('win-overlay'),
             progressBar: document.getElementById('progress-bar'),
             progressText: document.getElementById('progress-text'),
@@ -280,6 +309,7 @@
             oppProgressBar: document.getElementById('opponent-progress-bar'),
             oppProgressText: document.getElementById('opponent-progress-text'),
             btnBack: document.getElementById('btn-back'),
+            btnPause: document.getElementById('btn-pause'),
             btnPlayAgain: document.getElementById('btn-play-again'),
             diffBtns: document.querySelectorAll('.diff-btn'),
             imageGrid: document.getElementById('image-grid'),
@@ -496,6 +526,11 @@
                     els.oppProgressText.textContent = `${data.percentage}%`;
                 } else if (data.type === 'win') {
                     showLoseScreen();
+                } else if (data.type === 'pause') {
+                    triggerPauseState("Opponent Paused Game");
+                } else if (data.type === 'ready') {
+                    state.remoteReady = true;
+                    checkBothReady();
                 }
             });
             
@@ -536,6 +571,30 @@
         els.btnBack.addEventListener('click', showMenu);
         els.btnPlayAgain.addEventListener('click', showMenu);
         
+        els.btnPause.addEventListener('click', () => {
+            if (!state.isPaused && !state.isCountingDown) {
+                if (state.isMultiplayer && peerConnection && peerConnection.open) {
+                    peerConnection.send({ type: 'pause' });
+                }
+                triggerPauseState("Game Paused");
+            }
+        });
+
+        els.btnReady.addEventListener('click', () => {
+            state.localReady = true;
+            els.btnReady.classList.add('opacity-50', 'pointer-events-none');
+            els.btnReady.textContent = "Waiting...";
+            
+            if (state.isMultiplayer) {
+                els.pauseStatus.textContent = state.remoteReady ? "Opponent is ready!" : "Waiting for opponent...";
+                if (peerConnection && peerConnection.open) {
+                    peerConnection.send({ type: 'ready' });
+                }
+            }
+            
+            checkBothReady();
+        });
+        
         document.getElementById('btn-load-more').addEventListener('click', () => {
             loadDynamicImages(true);
         });
@@ -559,6 +618,60 @@
         document.addEventListener('pointercancel', () => els.viewport.classList.remove('whiten-active'));
 
         // --- CORE GAME FUNCTIONS ---
+        function triggerPauseState(title = "Game Paused") {
+            state.isPaused = true;
+            state.localReady = false;
+            state.remoteReady = false;
+            
+            els.pauseTitle.textContent = title;
+            els.pauseStatus.textContent = state.isMultiplayer ? "Both players must be ready." : "Click ready to continue.";
+            
+            els.btnReady.classList.remove('opacity-50', 'pointer-events-none');
+            els.btnReady.textContent = "I'm Ready";
+            
+            els.pauseOverlay.classList.remove('hidden');
+            els.countdownOverlay.classList.add('hidden');
+        }
+
+        function checkBothReady() {
+            if (state.isMultiplayer) {
+                if (state.localReady && state.remoteReady) {
+                    startCountdown();
+                } else if (state.localReady && !state.remoteReady) {
+                    els.pauseStatus.textContent = "Waiting for opponent...";
+                } else if (!state.localReady && state.remoteReady) {
+                    els.pauseStatus.textContent = "Opponent is ready!";
+                }
+            } else {
+                if (state.localReady) {
+                    startCountdown();
+                }
+            }
+        }
+
+        function startCountdown() {
+            els.pauseOverlay.classList.add('hidden');
+            els.countdownOverlay.classList.remove('hidden');
+            state.isCountingDown = true;
+            
+            let count = 3;
+            els.countdownText.textContent = count;
+            
+            const interval = setInterval(() => {
+                count--;
+                if (count > 0) {
+                    els.countdownText.textContent = count;
+                } else if (count === 0) {
+                    els.countdownText.textContent = "GO!";
+                } else {
+                    clearInterval(interval);
+                    els.countdownOverlay.classList.add('hidden');
+                    state.isPaused = false;
+                    state.isCountingDown = false;
+                }
+            }, 1000);
+        }
+
         function showMenu() {
             els.gameScreen.classList.add('hidden-screen');
             els.menuScreen.classList.remove('hidden-screen');
@@ -597,12 +710,14 @@
             img.onload = () => {
                 buildPuzzle();
                 els.loadingOverlay.classList.add('hidden');
+                triggerPauseState("Ready to Start?");
             };
             img.onerror = () => {
                 console.warn("Failed to load high-res image, using fallback.");
-                state.currentImageSrc = 'https://placehold.co/2400x600/1e293b/10b981?text=Fallback+Panorama';
+                state.currentImageSrc = `https://placehold.co/2400x600/1e293b/10b981?text=Fallback+Panorama`;
                 buildPuzzle();
                 els.loadingOverlay.classList.add('hidden');
+                triggerPauseState("Ready to Start?");
             }
             img.src = imgSrc;
         }
@@ -751,8 +866,11 @@
         }
 
         function onPointerDown(e, piece) {
-            if (piece.locked || state.isTransitioning || e.button !== 0) return;
+            if (piece.locked || state.isTransitioning || e.button !== 0 || state.isPaused || state.isCountingDown) return;
             e.preventDefault();
+
+            // Prevent selecting pieces from the far right preview area
+            if (piece.cx >= state.viewportX + CONFIG.activeCols) return;
 
             const group = findConnectedGroup(piece);
             group.forEach(p => p.el.classList.add('dragging'));
