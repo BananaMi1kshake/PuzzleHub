@@ -430,9 +430,21 @@
                 btnLoadMore.disabled = true;
             }
 
-            // 1. Shuffle the array on the very first load so it's fresh every time you refresh the page
+            // 1. Shuffle the array based on the current date so it updates once a day
             if (shuffledPanoramas.length === 0) {
-                shuffledPanoramas = [...CURATED_PANORAMAS].sort(() => Math.random() - 0.5);
+                const today = new Date();
+                let seed = today.getFullYear() * 10000 + (today.getMonth() + 1) * 100 + today.getDate();
+                const dailyRandom = () => {
+                    let x = Math.sin(seed++) * 10000;
+                    return x - Math.floor(x);
+                };
+                
+                shuffledPanoramas = [...CURATED_PANORAMAS];
+                for (let i = shuffledPanoramas.length - 1; i > 0; i--) {
+                    const j = Math.floor(dailyRandom() * (i + 1));
+                    [shuffledPanoramas[i], shuffledPanoramas[j]] = [shuffledPanoramas[j], shuffledPanoramas[i]];
+                }
+                
                 // Map the Unsplash IDs into actual high/low res URLs
                 shuffledPanoramas = shuffledPanoramas.map(img => ({
                     ...img,
@@ -1064,7 +1076,7 @@
             e.preventDefault();
 
             // Prevent selecting pieces from the far right preview area
-            if (piece.cx >= state.viewportX + CONFIG.activeCols) return;
+            if (piece.cx > state.viewportX + CONFIG.activeCols) return;
 
             const group = findConnectedGroup(piece);
             group.forEach(p => p.el.classList.add('dragging'));
@@ -1122,8 +1134,8 @@
                 const tcx = pos.startCx + deltaCx;
                 const tcy = pos.startCy + deltaCy;
                 
-                // Prevent moving out of bounds OR into the top/bottom edge rows
-                if (tcx <= state.viewportX || tcx >= CONFIG.fullCols || tcy <= 0 || tcy >= CONFIG.rows - 1) {
+                // Prevent moving out of bounds OR into the top/bottom edge rows OR the far right preview area
+                if (tcx <= state.viewportX || tcx > state.viewportX + CONFIG.activeCols || tcy <= 0 || tcy >= CONFIG.rows - 1) {
                     validMove = false;
                     break;
                 }
